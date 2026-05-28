@@ -20,15 +20,23 @@ interface GameState {
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 const EMOJIS = ['😎', '🤩', '🥳', '😏', '🧐', '🤓', '😈', '👑', '🦊', '🐉', '🦄', '🚀', '🌟', '💎', '🎯'];
+const SUSPENSE_MESSAGES = [
+  '🔮 L\'oracle de la glace réfléchit...',
+  '🧊 Les autres joueurs fondent encore...',
+  '🎯 Ça chauffe, encore quelques secondes...',
+  '❄️ Le verdict gèle les mauvaises réponses...',
+  '⏳ Suspense insoutenable...',
+  '🕒 On attend les retardataires...',
+];
 const CONFETTI_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
 
 export default function PlayPage() {
   const [gameId, setGameId] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [initialized, setInitialized] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'correct' | 'incorrect' | null; correctAnswer?: string }>({ type: null });
   const [hasAnswered, setHasAnswered] = useState(false);
   const [confettiPieces, setConfettiPieces] = useState<{ id: number; color: string; left: number; delay: number }[]>([]);
+  const [suspenseMessageIndex, setSuspenseMessageIndex] = useState(0);
   const emojiRef = useRef(EMOJIS[Math.floor(Math.random() * EMOJIS.length)]);
 
   useEffect(() => {
@@ -43,16 +51,24 @@ export default function PlayPage() {
   const { data: gameState, isLoading, error, mutate } = useSWR<GameState>(
     initialized && gameId ? `/api/gameState?gameId=${gameId}` : null,
     fetcher,
-    { refreshInterval: hasAnswered ? 2000 : 1000 }
+    { refreshInterval: hasAnswered ? 1000 : 1000 }
   );
 
   // Reset hasAnswered when a new answering phase starts
   useEffect(() => {
     if (gameState?.phase === 'answering') {
       setHasAnswered(false);
-      setFeedback({ type: null });
     }
   }, [gameState?.currentQuestionIndex, gameState?.phase]);
+
+  // Cycle suspense messages while waiting
+  useEffect(() => {
+    if (!hasAnswered || gameState?.phase !== 'answering') return;
+    const id = setInterval(() => {
+      setSuspenseMessageIndex((i) => (i + 1) % SUSPENSE_MESSAGES.length);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [hasAnswered, gameState?.phase]);
 
   const triggerConfetti = () => {
     const pieces = Array.from({ length: 20 }, (_, i) => ({
@@ -74,14 +90,9 @@ export default function PlayPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId, playerName, answerIndex }),
       });
-      const data = await res.json();
-      setFeedback({
-        type: data.correct ? 'correct' : 'incorrect',
-        correctAnswer: data.explanation,
-      });
-      if (data.correct) triggerConfetti();
+      await res.json();
     } catch {
-      setFeedback({ type: 'incorrect', correctAnswer: 'Erreur réseau...' });
+      // Silently fail — le prochain poll montrera le verdict
     }
   };
 
@@ -168,7 +179,7 @@ export default function PlayPage() {
 
   const isGameOver = !isActive || currentQuestionIndex >= totalQuestions;
 
-  // ─── Verdict timer ───
+  // ─── Live timer ───
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!isGameOver) {
@@ -267,18 +278,6 @@ export default function PlayPage() {
       <div className="min-h-screen flex flex-col p-4 relative overflow-hidden"
         style={{ background: 'linear-gradient(135deg, #0f172a, #1e1b4b, #312e81)' }}
       >
-        {confettiPieces.map((p) => (
-          <div
-            key={p.id}
-            className="absolute top-0 w-2 h-2 rounded-full animate-confetti z-50"
-            style={{
-              left: `${p.left}%`,
-              animationDelay: `${p.delay}s`,
-              backgroundColor: p.color,
-            }}
-          />
-        ))}
-
         <div className="relative z-10 max-w-lg mx-auto w-full space-y-4 pt-4">
           {/* Header */}
           <div className="flex items-center justify-between">
@@ -321,7 +320,7 @@ export default function PlayPage() {
                 }}
               />
             </div>
-            <span className={`text-sm font-bold font-fredoka ${remainingSecs <= 10 ? 'text-red-400 animate-wiggle' : 'text-slate-300'}`}>
+            <span className={`text-sm font-bold font-fredoka ${remainingSecs <= 5 ? 'text-red-400 animate-wiggle' : 'text-slate-300'}`}>
               {remainingSecs} s
             </span>
           </div>
@@ -355,66 +354,60 @@ export default function PlayPage() {
 
             {/* Options */}
             <div className="space-y-3">
-              {currentQuestion?.options?.map((option: string, index: number) => {
-                const isCorrect = feedback.type === 'correct' && index === gameState?.currentQuestion?.correctAnswerIndex;
-                const isWrongPick = feedback.type === 'incorrect' && hasAnswered;
-                const showResult = feedback.type !== null;
-
-                let btnStyle = {};
-                if (showResult && isCorrect) {
-                  btnStyle = {
-                    background: 'rgba(16, 185, 129, 0.2)',
-                    borderColor: '#10b981',
-                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.3)',
-                  };
-                } else if (showResult && isWrongPick) {
-                  btnStyle = {
-                    background: 'rgba(239, 68, 68, 0.2)',
-                    borderColor: '#ef4444',
-                  };
-                }
-
-                return (
-                  <button
-                    key={index}
-                    onClick={() => handleAnswer(index)}
-                    disabled={hasAnswered}
-                    className={`w-full text-left glass rounded-2xl px-5 py-4 flex items-center gap-4 transition-all duration-300
-                      ${!hasAnswered ? 'hover:bg-white/15 cursor-pointer active:scale-[0.98]' : 'cursor-default'}
-                      ${showResult && isCorrect ? 'ring-2 ring-green-400/50' : ''}
-                    `}
-                    style={btnStyle}
-                  >
-                    <span className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm
-                      ${feedback.type === 'correct' && isCorrect ? 'bg-green-500 text-white' :
-                        feedback.type === 'incorrect' && isWrongPick ? 'bg-red-500 text-white' :
-                        'bg-white/10 text-slate-300'}
-                    `}>
-                      {showResult && isCorrect ? '✓' : showResult && isWrongPick ? '✗' : String.fromCharCode(65 + index)}
-                    </span>
-                    <span className={`flex-1 ${showResult && isCorrect ? 'text-green-300 font-semibold' : 'text-white'}`}>
-                      {option}
-                    </span>
-                  </button>
-                );
-              })}
+              {currentQuestion?.options?.map((option: string, index: number) => (
+                <button
+                  key={index}
+                  onClick={() => handleAnswer(index)}
+                  disabled={hasAnswered}
+                  className={`w-full text-left glass rounded-2xl px-5 py-4 flex items-center gap-4 transition-all duration-300
+                    ${!hasAnswered
+                      ? 'hover:bg-white/15 cursor-pointer active:scale-[0.98]'
+                      : 'cursor-default opacity-60'
+                    }
+                  `}
+                >
+                  <span className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm
+                    ${hasAnswered ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'}
+                  `}>
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  <span className="flex-1 text-white">
+                    {option}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            {/* Feedback toast */}
-            {feedback.type && (
-              <div className={`animate-bounce-in rounded-2xl p-4 text-center font-bold text-lg ${
-                feedback.type === 'correct'
-                  ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                  : 'bg-red-500/20 text-red-300 border border-red-500/30'
-              }`}>
-                {feedback.type === 'correct' ? '🎉 Bonne réponse !' : '😅 Mauvaise réponse !'}
-              </div>
-            )}
-
-            {/* En attendant les autres joueurs */}
+            {/* Suspense animation */}
             {hasAnswered && (
-              <div className="text-center text-slate-400 text-sm animate-pulse">
-                ⏳ En attente des autres joueurs...
+              <div className="animate-bounce-in space-y-4">
+                {/* Ice crystal animation */}
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <div className="text-5xl animate-float">🧊</div>
+                    <div className="absolute -top-2 -right-2 text-2xl animate-ping">✨</div>
+                  </div>
+                </div>
+
+                <div className="text-center space-y-2">
+                  <p className="text-slate-300 font-semibold text-lg animate-pulse">
+                    {SUSPENSE_MESSAGES[suspenseMessageIndex]}
+                  </p>
+                  <p className="text-slate-500 text-sm">
+                    Les réponses sont gelées jusqu&apos;au verdict final ❄️
+                  </p>
+                </div>
+
+                {/* Waiting dots */}
+                <div className="flex justify-center gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="w-2.5 h-2.5 rounded-full bg-blue-400/60"
+                      style={{ animation: `bounce 1.4s ease-in-out ${i * 0.2}s infinite` }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -450,10 +443,31 @@ export default function PlayPage() {
   const verdictRemaining = Math.max(0, 5000 - verdictElapsed);
   const verdictSecs = Math.ceil(verdictRemaining / 1000);
 
+  // Trigger confetti on verdict if current player was correct
+  const myResult = playerResults?.find((r) => r.player === playerName);
+  useEffect(() => {
+    if (phase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
+      triggerConfetti();
+    }
+  }, [phase, myResult?.correct]);
+
   return (
     <div className="min-h-screen flex flex-col p-4 relative overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #0f172a, #1e1b4b, #312e81)' }}
     >
+      {/* Confetti overlay */}
+      {confettiPieces.map((p) => (
+        <div
+          key={p.id}
+          className="absolute top-0 w-2 h-2 rounded-full animate-confetti z-50"
+          style={{
+            left: `${p.left}%`,
+            animationDelay: `${p.delay}s`,
+            backgroundColor: p.color,
+          }}
+        />
+      ))}
+
       <div className="relative z-10 max-w-lg mx-auto w-full space-y-4 pt-4">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -491,12 +505,12 @@ export default function PlayPage() {
         </div>
 
         {/* Verdict card */}
-        <div className="glass rounded-3xl p-6 space-y-5 card-glow animate-slide-up">
+        <div className="glass rounded-3xl p-6 space-y-5 card-glow animate-slide-up" key={`verdict-${currentQuestionIndex}`}>
           <h2 className="text-xl font-bold text-white leading-relaxed">
             {currentQuestion?.text || 'Question'}
           </h2>
 
-          {/* Correct answer */}
+          {/* Correct answer reveal */}
           {currentQuestion && (
             <div className="bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-center">
               <span className="text-sm text-green-400 font-semibold block mb-1">✅ Bonne réponse</span>
@@ -514,7 +528,7 @@ export default function PlayPage() {
               return (
                 <div
                   key={player}
-                  className={`glass rounded-2xl p-4 flex items-center justify-between ${
+                  className={`glass rounded-2xl p-4 flex items-center justify-between transition-all duration-300 ${
                     isMe ? 'ring-2 ring-blue-400/50' : ''
                   } ${correct ? 'opacity-100' : 'opacity-80'}`}
                 >
@@ -552,6 +566,11 @@ export default function PlayPage() {
                   ))}
             </div>
           </div>
+        </div>
+
+        {/* Revelation animation */}
+        <div className="flex justify-center text-3xl animate-bounce-in">
+          🎉
         </div>
       </div>
     </div>
