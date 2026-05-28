@@ -28,6 +28,7 @@ export async function GET(request) {
       text: currentQuestion.text,
       options: currentQuestion.options,
       illustration: currentQuestion.illustration,
+      illustrations: currentQuestion.illustrations,
       correctAnswerIndex: currentQuestion.correctAnswerIndex
     } : null,
     isActive: state.isActive,

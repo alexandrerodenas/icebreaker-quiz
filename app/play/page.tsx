@@ -7,7 +7,7 @@ interface GameState {
   players: string[];
   scores: Record<string, number>;
   currentQuestionIndex: number;
-  currentQuestion: { id: number; text: string; options: string[]; illustration?: string; correctAnswerIndex: number } | null;
+  currentQuestion: { id: number; text: string; options: string[]; illustration?: string; illustrations?: string[]; correctAnswerIndex: number } | null;
   isActive: boolean;
   startTime: number;
   duration: number;
@@ -317,7 +317,18 @@ export default function PlayPage() {
             {currentQuestion?.text || 'Chargement de la question...'}
           </h2>
 
-          {currentQuestion?.illustration && (
+          {currentQuestion?.illustrations ? (
+            <div className="grid grid-cols-2 gap-3 rounded-2xl overflow-hidden">
+              {currentQuestion.illustrations.map((src: string, i: number) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`Photo ${i + 1}`}
+                  className="w-full h-44 object-cover rounded-xl"
+                />
+              ))}
+            </div>
+          ) : currentQuestion?.illustration && (
             <div className="rounded-2xl overflow-hidden">
               <img
                 src={currentQuestion.illustration}
