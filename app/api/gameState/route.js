@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getOrCreateGameState, addPlayerToGame, updateScore, advanceQuestion, getGameState, endGame } from '@/lib/gameState';
+import { getOrCreateGameState, addPlayerToGame, submitAnswer, getGameState, endGame } from '@/lib/gameState';
 import { questions } from '@/lib/questions';
 
 export async function GET(request) {
@@ -18,10 +18,20 @@ export async function GET(request) {
   const currentQuestionIndex = state.currentQuestionIndex;
   const currentQuestion = questions[currentQuestionIndex];
   
+  // Compute player results during verdict phase
+  let playerResults = null;
+  if (state.questionPhase === 'verdict' && currentQuestion) {
+    playerResults = Array.from(state.players).map(player => ({
+      player,
+      correct: state.answers[player] === currentQuestion.correctAnswerIndex,
+      hasAnswered: player in state.answers,
+    }));
+  }
+  
   return NextResponse.json({
     gameId,
     players: Array.from(state.players),
-    scores: state.scores,
+    scores: { ...state.scores },
     currentQuestionIndex,
     currentQuestion: currentQuestion ? {
       id: currentQuestion.id,
@@ -32,8 +42,12 @@ export async function GET(request) {
       correctAnswerIndex: currentQuestion.correctAnswerIndex
     } : null,
     isActive: state.isActive,
-    startTime: state.startTime,
-    duration: state.duration,
+    // Phase info
+    phase: state.questionPhase,
+    questionStartTime: state.questionStartTime,
+    questionDuration: state.questionDuration,
+    verdictStartTime: state.verdictStartTime,
+    playerResults,
     totalQuestions: questions.length
   });
 }
@@ -67,31 +81,21 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Game ID, player name, and answer index are required' }, { status: 400 });
     }
     
+    const result = submitAnswer(gameId, playerName, answerIndex);
+    
+    if (result.error) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+    
     const state = getGameState(gameId);
-    if (!state) {
-      return NextResponse.json({ error: 'Game not found' }, { status: 404 });
-    }
-    
-    const currentQuestionIndex = state.currentQuestionIndex;
-    const currentQuestion = questions[currentQuestionIndex];
-    
-    if (!currentQuestion) {
-      return NextResponse.json({ error: 'No current question' }, { status: 400 });
-    }
-    
-    let points = 0;
-    if (answerIndex === currentQuestion.correctAnswerIndex) {
-      points = 1; // 1 point for correct answer
-    }
-    
-    updateScore(gameId, playerName, points);
+    const currentQuestion = state ? questions[state.currentQuestionIndex] : null;
     
     return NextResponse.json({
       success: true,
-      correct: answerIndex === currentQuestion.correctAnswerIndex,
-      points,
-      correctAnswerIndex: currentQuestion.correctAnswerIndex,
-      explanation: `The correct answer was: ${currentQuestion.options[currentQuestion.correctAnswerIndex]}`
+      correct: result.correct,
+      points: result.points,
+      correctAnswerIndex: currentQuestion?.correctAnswerIndex,
+      explanation: currentQuestion ? `The correct answer was: ${currentQuestion.options[currentQuestion.correctAnswerIndex]}` : '',
     });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to submit answer' }, { status: 500 });
