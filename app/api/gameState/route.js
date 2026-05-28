@@ -31,7 +31,8 @@ export async function GET(request) {
     } : null,
     isActive: state.isActive,
     startTime: state.startTime,
-    duration: state.duration
+    duration: state.duration,
+    totalQuestions: questions.length
   });
 }
 
@@ -78,7 +79,7 @@ export async function PUT(request) {
     
     let points = 0;
     if (answerIndex === currentQuestion.correctAnswerIndex) {
-      points = 10; // 10 points for correct answer
+      points = 1; // 1 point for correct answer
     }
     
     updateScore(gameId, playerName, points);
