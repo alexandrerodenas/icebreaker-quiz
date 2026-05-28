@@ -13,7 +13,7 @@ interface GameState {
   questionStartTime: number;
   questionDuration: number;
   verdictStartTime: number | null;
-  playerResults: { player: string; correct: boolean; hasAnswered: boolean }[] | null;
+  playerAnswers: { player: string; answerIndex: number; answerText: string | null; hasAnswered: boolean }[] | null;
   totalQuestions: number;
 }
 
@@ -173,7 +173,7 @@ export default function PlayPage() {
     questionStartTime,
     questionDuration,
     verdictStartTime,
-    playerResults,
+    playerAnswers,
     totalQuestions,
   } = gameState;
 
@@ -443,14 +443,6 @@ export default function PlayPage() {
   const verdictRemaining = Math.max(0, 5000 - verdictElapsed);
   const verdictSecs = Math.ceil(verdictRemaining / 1000);
 
-  // Trigger confetti on verdict if current player was correct
-  const myResult = playerResults?.find((r) => r.player === playerName);
-  useEffect(() => {
-    if (phase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
-      triggerConfetti();
-    }
-  }, [phase, myResult?.correct]);
-
   return (
     <div className="min-h-screen flex flex-col p-4 relative overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #0f172a, #1e1b4b, #312e81)' }}
@@ -510,36 +502,33 @@ export default function PlayPage() {
             {currentQuestion?.text || 'Question'}
           </h2>
 
-          {/* Correct answer reveal */}
-          {currentQuestion && (
-            <div className="bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-center">
-              <span className="text-sm text-green-400 font-semibold block mb-1">✅ Bonne réponse</span>
-              <span className="text-lg font-bold text-green-200">
-                {currentQuestion.options[currentQuestion.correctAnswerIndex]}
-              </span>
-            </div>
-          )}
+          {/* Answer reveal header */}
+          <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30 rounded-2xl p-4 text-center">
+            <span className="text-lg font-bold text-blue-200">
+              🎯 Verdict !
+            </span>
+          </div>
 
-          {/* Player results */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">👥 Résultats des joueurs</h3>
-            {playerResults?.map(({ player, correct, hasAnswered }) => {
+          {/* Player answers distribution */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">👥 Réponses de l'équipe</h3>
+            {playerAnswers?.map(({ player, answerText, hasAnswered }) => {
               const isMe = player === playerName;
               return (
                 <div
                   key={player}
                   className={`glass rounded-2xl p-4 flex items-center justify-between transition-all duration-300 ${
                     isMe ? 'ring-2 ring-blue-400/50' : ''
-                  } ${correct ? 'opacity-100' : 'opacity-80'}`}
+                  }`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-xl">{correct ? '✅' : hasAnswered ? '❌' : '⏰'}</span>
+                    <span className="text-xl">{hasAnswered ? '🎯' : '⏰'}</span>
                     <span className={`font-semibold ${isMe ? 'text-blue-300' : 'text-white'}`}>
                       {player} {isMe && '(moi)'}
                     </span>
                   </div>
-                  <span className="text-sm font-bold text-slate-300">
-                    {correct ? '+1 pt' : hasAnswered ? '+0 pt' : 'Pas répondu'}
+                  <span className="text-sm font-bold text-slate-300 text-right max-w-[50%] truncate">
+                    {hasAnswered ? answerText : 'Pas répondu'}
                   </span>
                 </div>
               );

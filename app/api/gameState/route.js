@@ -18,12 +18,15 @@ export async function GET(request) {
   const currentQuestionIndex = state.currentQuestionIndex;
   const currentQuestion = questions[currentQuestionIndex];
   
-  // Compute player results during verdict phase
-  let playerResults = null;
+  // Compute player answers distribution during verdict phase
+  let playerAnswers = null;
   if (state.questionPhase === 'verdict' && currentQuestion) {
-    playerResults = Array.from(state.players).map(player => ({
+    playerAnswers = Array.from(state.players).map(player => ({
       player,
-      correct: state.answers[player] === currentQuestion.correctAnswerIndex,
+      answerIndex: state.answers[player] ?? -1,
+      answerText: state.answers[player] !== undefined
+        ? currentQuestion.options[state.answers[player]]
+        : null,
       hasAnswered: player in state.answers,
     }));
   }
@@ -39,7 +42,9 @@ export async function GET(request) {
       options: currentQuestion.options,
       illustration: currentQuestion.illustration,
       illustrations: currentQuestion.illustrations,
-      correctAnswerIndex: currentQuestion.correctAnswerIndex
+      // Pour les icebreakers, on cache la "bonne réponse" — 
+      // le correctAnswerIndex est arbitraire
+      correctAnswerIndex: -1
     } : null,
     isActive: state.isActive,
     // Phase info
@@ -47,7 +52,7 @@ export async function GET(request) {
     questionStartTime: state.questionStartTime,
     questionDuration: state.questionDuration,
     verdictStartTime: state.verdictStartTime,
-    playerResults,
+    playerAnswers,
     totalQuestions: questions.length
   });
 }
