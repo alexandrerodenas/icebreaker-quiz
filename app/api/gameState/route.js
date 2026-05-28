@@ -27,7 +27,8 @@ export async function GET(request) {
       id: currentQuestion.id,
       text: currentQuestion.text,
       options: currentQuestion.options,
-      illustration: currentQuestion.illustration
+      illustration: currentQuestion.illustration,
+      correctAnswerIndex: currentQuestion.correctAnswerIndex
     } : null,
     isActive: state.isActive,
     startTime: state.startTime,

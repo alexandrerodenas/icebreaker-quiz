@@ -10,7 +10,7 @@ export default function Home() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   };
 
-  const handleStart = (e: React.FormEvent) => {
+  const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!playerName.trim()) {
       alert('Entre ton nom pour commencer ! 🎮');
@@ -18,6 +18,18 @@ export default function Home() {
     }
     const id = gameId || generateGameId();
     setGameId(id);
+    
+    // Créer la partie via l'API avant de rediriger
+    try {
+      await fetch('/api/gameState', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: id, playerName: playerName.trim() }),
+      });
+    } catch (err) {
+      console.error('Erreur création partie:', err);
+    }
+    
     window.location.href = `/play?gameId=${id}&player=${encodeURIComponent(playerName)}`;
   };
 
