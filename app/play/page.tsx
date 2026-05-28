@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import useSWR from 'swr';
 
 interface GameState {
@@ -37,6 +37,7 @@ export default function PlayPage() {
   const [hasAnswered, setHasAnswered] = useState(false);
   const [confettiPieces, setConfettiPieces] = useState<{ id: number; color: string; left: number; delay: number }[]>([]);
   const [suspenseMessageIndex, setSuspenseMessageIndex] = useState(0);
+  const [now, setNow] = useState(Date.now());
   const emojiRef = useRef(EMOJIS[Math.floor(Math.random() * EMOJIS.length)]);
 
   useEffect(() => {
@@ -48,10 +49,10 @@ export default function PlayPage() {
     if (id || player) setInitialized(true);
   }, []);
 
-  const { data: gameState, isLoading, error, mutate } = useSWR<GameState>(
+  const { data: gameState, isLoading, error } = useSWR<GameState>(
     initialized && gameId ? `/api/gameState?gameId=${gameId}` : null,
     fetcher,
-    { refreshInterval: hasAnswered ? 1000 : 1000 }
+    { refreshInterval: 1000 }
   );
 
   // Reset hasAnswered when a new answering phase starts
@@ -69,6 +70,26 @@ export default function PlayPage() {
     }, 3000);
     return () => clearInterval(id);
   }, [hasAnswered, gameState?.phase]);
+
+  // Live timer — always mounted, check game state inside
+  useEffect(() => {
+    const isGameOver = !gameState?.isActive || (gameState?.currentQuestionIndex ?? 0) >= (gameState?.totalQuestions ?? 0);
+    if (!isGameOver) {
+      const id = setInterval(() => setNow(Date.now()), 200);
+      return () => clearInterval(id);
+    }
+  }, [gameState?.isActive, gameState?.currentQuestionIndex, gameState?.totalQuestions]);
+
+  // Confetti trigger for verdict
+  const myResult = useMemo(
+    () => gameState?.playerResults?.find((r) => r.player === playerName),
+    [gameState?.playerResults, playerName]
+  );
+  useEffect(() => {
+    if (gameState?.phase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
+      triggerConfetti();
+    }
+  }, [gameState?.phase, myResult?.correct]);
 
   const triggerConfetti = () => {
     const pieces = Array.from({ length: 20 }, (_, i) => ({
@@ -92,7 +113,7 @@ export default function PlayPage() {
       });
       await res.json();
     } catch {
-      // Silently fail — le prochain poll montrera le verdict
+      // Silently fail
     }
   };
 
@@ -178,15 +199,6 @@ export default function PlayPage() {
   } = gameState;
 
   const isGameOver = !isActive || currentQuestionIndex >= totalQuestions;
-
-  // ─── Live timer ───
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!isGameOver) {
-      const id = setInterval(() => setNow(Date.now()), 200);
-      return () => clearInterval(id);
-    }
-  }, [isGameOver]);
 
   // ─── Game Over Screen ───
 
@@ -381,7 +393,6 @@ export default function PlayPage() {
             {/* Suspense animation */}
             {hasAnswered && (
               <div className="animate-bounce-in space-y-4">
-                {/* Ice crystal animation */}
                 <div className="flex justify-center">
                   <div className="relative">
                     <div className="text-5xl animate-float">🧊</div>
@@ -398,7 +409,6 @@ export default function PlayPage() {
                   </p>
                 </div>
 
-                {/* Waiting dots */}
                 <div className="flex justify-center gap-1.5">
                   {[0, 1, 2].map((i) => (
                     <div
@@ -442,14 +452,6 @@ export default function PlayPage() {
   const verdictElapsed = verdictStartTime ? now - verdictStartTime : 0;
   const verdictRemaining = Math.max(0, 5000 - verdictElapsed);
   const verdictSecs = Math.ceil(verdictRemaining / 1000);
-
-  // Trigger confetti on verdict if current player was correct
-  const myResult = playerResults?.find((r) => r.player === playerName);
-  useEffect(() => {
-    if (phase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
-      triggerConfetti();
-    }
-  }, [phase, myResult?.correct]);
 
   return (
     <div className="min-h-screen flex flex-col p-4 relative overflow-hidden"
