@@ -7,7 +7,6 @@ export default function Home() {
   const router = useRouter();
   const [playerName, setPlayerName] = useState('');
   const [gameId, setGameId] = useState('');
-  const [createdGameId, setCreatedGameId] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,12 +28,12 @@ export default function Home() {
       const res = await fetch('/api/gameState', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId: id, playerName: playerName.trim() }),
+        body: JSON.stringify({ gameId: id, playerName: playerName.trim(), host: true }),
       });
 
       if (!res.ok) throw new Error('Erreur serveur');
 
-      setCreatedGameId(id);
+      router.push(`/play?gameId=${id}&player=${encodeURIComponent(playerName.trim())}&host=1`);
     } catch (err) {
       setError('Impossible de créer la partie. Réessaie !');
     } finally {
@@ -79,66 +78,6 @@ export default function Home() {
       handleCreate();
     }
   };
-
-  const copyCode = () => {
-    if (createdGameId) {
-      navigator.clipboard.writeText(createdGameId);
-    }
-  };
-
-  const joinCreatedGame = () => {
-    if (createdGameId && playerName.trim()) {
-      router.push(`/play?gameId=${createdGameId}&player=${encodeURIComponent(playerName.trim())}`);
-    }
-  };
-
-  // ─── Game Created Screen ───
-  if (createdGameId) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 30%, #312e81 60%, #1e3a5f 100%)' }}
-      >
-        <div className="absolute top-12 left-[10%] text-5xl opacity-20 animate-float">🎉</div>
-        <div className="absolute top-20 right-[15%] text-4xl opacity-20 animate-float-delayed">✨</div>
-        <div className="absolute bottom-20 left-[20%] text-5xl opacity-20 animate-float">🌟</div>
-        <div className="absolute bottom-32 right-[10%] text-4xl opacity-20 animate-float-delayed">💫</div>
-
-        <div className="relative z-10 w-full max-w-md animate-bounce-in text-center space-y-6">
-          <div className="text-6xl mb-2">🎮</div>
-          <h1 className="text-3xl font-bold font-fredoka gradient-text">
-            Partie créée !
-          </h1>
-          <p className="text-slate-300">
-            Partage ce code avec tes potes pour qu&apos;ils rejoignent :
-          </p>
-
-          {/* Game Code */}
-          <div className="glass rounded-3xl p-6 card-glow cursor-pointer" onClick={copyCode}>
-            <div className="text-5xl font-bold font-fredoka tracking-[0.3em] text-white mb-2 select-all">
-              {createdGameId}
-            </div>
-            <p className="text-sm text-slate-400">
-              Clique pour copier 📋
-            </p>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <button
-              onClick={joinCreatedGame}
-              className="flex-1 py-4 px-6 rounded-2xl text-lg font-bold font-fredoka text-white
-                transition-all duration-300 active:scale-95"
-              style={{
-                background: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)',
-                boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)',
-              }}
-            >
-              🚀 Rejoindre la partie
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ─── Home Screen ───
   return (

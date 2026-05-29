@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getOrCreateGameState, addPlayerToGame, submitAnswer, getGameState, endGame } from '@/lib/gameState';
+import { getOrCreateGameState, addPlayerToGame, submitAnswer, getGameState, endGame, startGame } from '@/lib/gameState';
 import { questions } from '@/lib/questions';
 
 export async function GET(request) {
@@ -20,7 +20,7 @@ export async function GET(request) {
   
   // Compute player results during verdict phase
   let playerResults = null;
-  if (state.questionPhase === 'verdict' && currentQuestion) {
+  if (state.phase === 'playing' && state.questionPhase === 'verdict' && currentQuestion) {
     playerResults = state.players.map(player => ({
       player,
       correct: state.answers[player] === currentQuestion.correctAnswerIndex,
@@ -43,21 +43,50 @@ export async function GET(request) {
     } : null,
     isActive: state.isActive,
     // Phase info
-    phase: state.questionPhase,
+    phase: state.phase,
+    questionPhase: state.questionPhase,
     questionStartTime: state.questionStartTime,
     questionDuration: state.questionDuration,
     verdictStartTime: state.verdictStartTime,
     playerResults,
-    totalQuestions: questions.length
+    totalQuestions: questions.length,
+    host: state.host,
   });
 }
 
 export async function POST(request) {
   try {
-    const { gameId, playerName } = await request.json();
+    const { gameId, playerName, host } = await request.json();
     
     if (!gameId || !playerName) {
       return NextResponse.json({ error: 'Game ID and player name are required' }, { status: 400 });
+    }
+
+    if (host) {
+      // Creation: load or create with host
+      const state = await getOrCreateGameState(gameId);
+      if (!state.players.includes(playerName)) {
+        state.players.push(playerName);
+        if (state.scores[playerName] === undefined) {
+          state.scores[playerName] = 0;
+        }
+      }
+      state.host = playerName;
+      const { getSupabase } = await import('@/lib/supabase');
+      const sb = getSupabase();
+      const { error } = await sb
+        .from('game_states')
+        .update({ state, updated_at: new Date().toISOString() })
+        .eq('game_id', gameId);
+      if (error) throw new Error(`Failed to save: ${error.message}`);
+      
+      return NextResponse.json({
+        success: true,
+        gameId,
+        playerName,
+        players: state.players,
+        host: state.host,
+      });
     }
     
     const state = await addPlayerToGame(gameId, playerName);
@@ -66,11 +95,35 @@ export async function POST(request) {
       success: true,
       gameId,
       playerName,
-      players: state.players
+      players: state.players,
+      host: state.host,
     });
   } catch (error) {
     console.error('POST /api/gameState error:', error);
     return NextResponse.json({ error: 'Failed to join game' }, { status: 500 });
+  }
+}
+
+export async function PATCH(request) {
+  try {
+    const { gameId, action, playerName } = await request.json();
+    
+    if (!gameId || !action) {
+      return NextResponse.json({ error: 'Game ID and action are required' }, { status: 400 });
+    }
+
+    if (action === 'start') {
+      const result = await startGame(gameId);
+      if (result.error) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, message: 'Game started' });
+    }
+    
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  } catch (error) {
+    console.error('PATCH /api/gameState error:', error);
+    return NextResponse.json({ error: 'Failed to process action' }, { status: 500 });
   }
 }
 

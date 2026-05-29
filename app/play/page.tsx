@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import useSWR from 'swr';
 
 interface GameState {
@@ -9,12 +9,14 @@ interface GameState {
   currentQuestionIndex: number;
   currentQuestion: { id: number; text: string; options: string[]; illustration?: string; illustrations?: string[]; correctAnswerIndex: number } | null;
   isActive: boolean;
-  phase: 'answering' | 'verdict';
+  phase: 'lobby' | 'playing';
+  questionPhase: 'answering' | 'verdict';
   questionStartTime: number;
   questionDuration: number;
   verdictStartTime: number | null;
   playerResults: { player: string; correct: boolean; hasAnswered: boolean }[] | null;
   totalQuestions: number;
+  host: string | null;
 }
 
 const fetcher = async (url: string) => {
@@ -74,14 +76,18 @@ export default function PlayPage() {
   const [suspenseMessageIndex, setSuspenseMessageIndex] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState(false);
+  const [starting, setStarting] = useState(false);
   const emojiRef = useRef(EMOJIS[Math.floor(Math.random() * EMOJIS.length)]);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const id = urlParams.get('gameId');
     const player = urlParams.get('player');
+    const host = urlParams.get('host');
     if (id) setGameId(id);
     if (player) setPlayerName(decodeURIComponent(player));
+    if (host === '1') setIsHost(true);
     if (id || player) setInitialized(true);
   }, []);
 
@@ -91,30 +97,30 @@ export default function PlayPage() {
     { refreshInterval: 1000 }
   );
 
-  // Reset hasAnswered when a new answering phase starts
+  // Reset hasAnswered when a new answering question starts
   useEffect(() => {
-    if (gameState?.phase === 'answering') {
+    if (gameState?.phase === 'playing' && gameState?.questionPhase === 'answering') {
       setHasAnswered(false);
     }
-  }, [gameState?.currentQuestionIndex, gameState?.phase]);
+  }, [gameState?.currentQuestionIndex, gameState?.phase, gameState?.questionPhase]);
 
   // Cycle suspense messages while waiting
   useEffect(() => {
-    if (!hasAnswered || gameState?.phase !== 'answering') return;
+    if (!hasAnswered || gameState?.phase !== 'playing' || gameState?.questionPhase !== 'answering') return;
     const id = setInterval(() => {
       setSuspenseMessageIndex((i) => (i + 1) % SUSPENSE_MESSAGES.length);
     }, 3000);
     return () => clearInterval(id);
-  }, [hasAnswered, gameState?.phase]);
+  }, [hasAnswered, gameState?.phase, gameState?.questionPhase]);
 
   // Live timer — always mounted, check game state inside
   useEffect(() => {
     const isGameOver = !gameState?.isActive || (gameState?.currentQuestionIndex ?? 0) >= (gameState?.totalQuestions ?? 0);
-    if (!isGameOver) {
+    if (!isGameOver && gameState?.phase === 'playing') {
       const id = setInterval(() => setNow(Date.now()), 200);
       return () => clearInterval(id);
     }
-  }, [gameState?.isActive, gameState?.currentQuestionIndex, gameState?.totalQuestions]);
+  }, [gameState?.isActive, gameState?.currentQuestionIndex, gameState?.totalQuestions, gameState?.phase]);
 
   // Confetti trigger for verdict
   const myResult = useMemo(
@@ -122,10 +128,10 @@ export default function PlayPage() {
     [gameState?.playerResults, playerName]
   );
   useEffect(() => {
-    if (gameState?.phase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
+    if (gameState?.phase === 'playing' && gameState?.questionPhase === 'verdict' && myResult?.correct && confettiPieces.length === 0) {
       triggerConfetti();
     }
-  }, [gameState?.phase, myResult?.correct]);
+  }, [gameState?.phase, gameState?.questionPhase, myResult?.correct]);
 
   const triggerConfetti = () => {
     const pieces = Array.from({ length: 20 }, (_, i) => ({
@@ -139,7 +145,7 @@ export default function PlayPage() {
   };
 
   const handleAnswer = async (answerIndex: number) => {
-    if (hasAnswered || gameState?.phase !== 'answering') return;
+    if (hasAnswered || gameState?.phase !== 'playing' || gameState?.questionPhase !== 'answering') return;
     setHasAnswered(true);
     try {
       const res = await fetch('/api/gameState', {
@@ -152,6 +158,27 @@ export default function PlayPage() {
       // Silently fail
     }
   };
+
+  const handleStartGame = useCallback(async () => {
+    setStarting(true);
+    try {
+      const res = await fetch('/api/gameState', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId, action: 'start' }),
+      });
+      if (!res.ok) throw new Error('Failed to start');
+    } catch {
+      // Silently fail
+    }
+    setStarting(false);
+  }, [gameId]);
+
+  const copyCode = useCallback(() => {
+    if (gameId) {
+      navigator.clipboard.writeText(gameId);
+    }
+  }, [gameId]);
 
   if (!initialized) {
     return (
@@ -227,6 +254,7 @@ export default function PlayPage() {
     currentQuestion,
     isActive,
     phase,
+    questionPhase,
     questionStartTime,
     questionDuration,
     verdictStartTime,
@@ -236,7 +264,106 @@ export default function PlayPage() {
 
   const isGameOver = !isActive || currentQuestionIndex >= totalQuestions;
 
-  // ─── Game Over Screen ───
+  // ─── LOBBY SCREEN ───
+
+  if (phase === 'lobby') {
+    return (
+      <>
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #0f172a, #1e1b4b, #312e81)' }}
+        >
+          <div className="absolute top-12 left-[10%] text-5xl opacity-20 animate-float">🎉</div>
+          <div className="absolute top-20 right-[15%] text-4xl opacity-20 animate-float-delayed">✨</div>
+          <div className="absolute bottom-20 left-[20%] text-5xl opacity-20 animate-float">🌟</div>
+          <div className="absolute bottom-32 right-[10%] text-4xl opacity-20 animate-float-delayed">💫</div>
+
+          <div className="relative z-10 w-full max-w-md animate-bounce-in text-center space-y-6">
+            <div className="text-6xl mb-2">🎮</div>
+            <h1 className="text-3xl font-bold font-fredoka gradient-text">
+              Salle d&apos;attente
+            </h1>
+            <p className="text-slate-300">
+              {isHost
+                ? 'Partage ce code avec tes potes pour qu\'ils rejoignent :'
+                : 'En attente que l\'hôte lance la partie...'}
+            </p>
+
+            {/* Game Code */}
+            <div className="glass rounded-3xl p-6 card-glow cursor-pointer" onClick={copyCode}>
+              <div className="text-5xl font-bold font-fredoka tracking-[0.3em] text-white mb-2 select-all">
+                {gameId}
+              </div>
+              <p className="text-sm text-slate-400">
+                Clique pour copier 📋
+              </p>
+            </div>
+
+            {/* Player list */}
+            <div className="glass rounded-3xl p-6 space-y-3">
+              <h2 className="text-lg font-bold font-fredoka text-white mb-4">
+                👥 Joueurs ({players?.length || 0})
+              </h2>
+              <div className="space-y-2">
+                {players && players.length > 0 ? (
+                  players.map((player) => {
+                    const isMe = player === playerName;
+                    const isTheHost = player === gameState.host;
+                    return (
+                      <div
+                        key={player}
+                        className={`flex items-center gap-3 rounded-2xl p-3 transition-all ${
+                          isMe ? 'bg-white/10 ring-1 ring-blue-400/30' : 'bg-white/5'
+                        }`}
+                      >
+                        <span className="text-2xl">
+                          {EMOJIS[Math.abs(player.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % EMOJIS.length]}
+                        </span>
+                        <span className={`flex-1 font-semibold text-left ${isMe ? 'text-blue-300' : 'text-white'}`}>
+                          {player} {isMe && '(moi)'}
+                        </span>
+                        {isTheHost && (
+                          <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-300 font-bold">
+                            Hôte
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-slate-500 italic">Aucun joueur pour l&apos;instant...</p>
+                )}
+              </div>
+            </div>
+
+            {isHost && (
+              <button
+                onClick={handleStartGame}
+                disabled={starting || !players || players.length < 1}
+                className="w-full py-4 px-6 rounded-2xl text-lg font-bold font-fredoka text-white
+                  transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)',
+                  boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)',
+                }}
+              >
+                {starting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                    Démarrage...
+                  </span>
+                ) : (
+                  '🚀 Lancer la partie !'
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+        {selectedImage && <Lightbox src={selectedImage} onClose={() => setSelectedImage(null)} />}
+      </>
+    );
+  }
+
+  // ─── GAME OVER SCREEN ───
 
   if (isGameOver) {
     const sortedScores = Object.entries(scores || {})
@@ -301,7 +428,7 @@ export default function PlayPage() {
                 className="flex-1 py-3 px-6 rounded-2xl font-bold text-white text-center transition-all duration-300 active:scale-95"
                 style={{ background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)' }}
               >
-                🔄 Nouvelle partie
+                Nouvelle partie
               </a>
               <a
                 href={`/?gameId=${gameId}`}
@@ -319,7 +446,7 @@ export default function PlayPage() {
 
   // ─── ANSWERING PHASE ───
 
-  if (phase === 'answering') {
+  if (phase === 'playing' && questionPhase === 'answering') {
     const elapsed = now - questionStartTime;
     const remaining = Math.max(0, questionDuration - elapsed);
     const remainingSecs = Math.floor(remaining / 1000);
