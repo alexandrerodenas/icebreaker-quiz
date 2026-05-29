@@ -21,26 +21,49 @@ export async function GET(request) {
   // Compute player results during verdict phase
   let playerResults = null;
   if (state.phase === 'playing' && state.questionPhase === 'verdict' && currentQuestion) {
-    playerResults = state.players.map(player => ({
-      player,
-      correct: state.answers[player] === currentQuestion.correctAnswerIndex,
-      hasAnswered: player in state.answers,
-    }));
+    playerResults = state.players.map(player => {
+      let correct;
+      if (currentQuestion.type === 'slider') {
+        correct = Math.abs(state.answers[player] - currentQuestion.correctValue) <= currentQuestion.tolerance;
+      } else {
+        correct = state.answers[player] === currentQuestion.correctAnswerIndex;
+      }
+      return {
+        player,
+        correct,
+        hasAnswered: player in state.answers,
+        answer: state.answers[player],
+      };
+    });
   }
-  
-  return NextResponse.json({
-    gameId,
-    players: state.players,
-    scores: { ...state.scores },
-    currentQuestionIndex,
-    currentQuestion: currentQuestion ? {
+
+  // Build question response
+  let questionResponse = null;
+  if (currentQuestion) {
+    questionResponse = {
       id: currentQuestion.id,
       text: currentQuestion.text,
       options: currentQuestion.options,
       illustration: currentQuestion.illustration,
       illustrations: currentQuestion.illustrations,
-      correctAnswerIndex: currentQuestion.correctAnswerIndex
-    } : null,
+      correctAnswerIndex: currentQuestion.correctAnswerIndex,
+    };
+    if (currentQuestion.type === 'slider') {
+      questionResponse.type = 'slider';
+      questionResponse.min = currentQuestion.min;
+      questionResponse.max = currentQuestion.max;
+      questionResponse.correctValue = currentQuestion.correctValue;
+      questionResponse.tolerance = currentQuestion.tolerance;
+      questionResponse.ticks = currentQuestion.ticks;
+    }
+  }
+
+  return NextResponse.json({
+    gameId,
+    players: state.players,
+    scores: { ...state.scores },
+    currentQuestionIndex,
+    currentQuestion: questionResponse,
     isActive: state.isActive,
     // Phase info
     phase: state.phase,
@@ -129,21 +152,25 @@ export async function PATCH(request) {
 
 export async function PUT(request) {
   try {
-    const { gameId, playerName, answerIndex } = await request.json();
-    
-    if (!gameId || playerName === undefined || answerIndex === undefined) {
-      return NextResponse.json({ error: 'Game ID, player name, and answer index are required' }, { status: 400 });
+    const { gameId, playerName, answerIndex, answerValue } = await request.json();
+
+    if (!gameId || playerName === undefined) {
+      return NextResponse.json({ error: 'Game ID and player name are required' }, { status: 400 });
     }
-    
-    const result = await submitAnswer(gameId, playerName, answerIndex);
-    
+
+    if (answerIndex === undefined && answerValue === undefined) {
+      return NextResponse.json({ error: 'Answer index or value is required' }, { status: 400 });
+    }
+
+    const result = await submitAnswer(gameId, playerName, answerIndex, answerValue);
+
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    
+
     const state = await getGameState(gameId);
     const currentQuestion = state ? questions[state.currentQuestionIndex] : null;
-    
+
     return NextResponse.json({
       success: true,
       correct: result.correct,

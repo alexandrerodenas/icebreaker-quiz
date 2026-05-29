@@ -7,14 +7,27 @@ interface GameState {
   players: string[];
   scores: Record<string, number>;
   currentQuestionIndex: number;
-  currentQuestion: { id: number; text: string; options: string[]; illustration?: string; illustrations?: string[]; correctAnswerIndex: number } | null;
+  currentQuestion: {
+    id: number;
+    text: string;
+    options: string[];
+    illustration?: string;
+    illustrations?: string[];
+    correctAnswerIndex: number;
+    type?: 'slider';
+    min?: number;
+    max?: number;
+    correctValue?: number;
+    tolerance?: number;
+    ticks?: { value: number; label: string }[];
+  } | null;
   isActive: boolean;
   phase: 'lobby' | 'playing';
   questionPhase: 'answering' | 'verdict';
   questionStartTime: number;
   questionDuration: number;
   verdictStartTime: number | null;
-  playerResults: { player: string; correct: boolean; hasAnswered: boolean }[] | null;
+  playerResults: { player: string; correct: boolean; hasAnswered: boolean; answer?: number }[] | null;
   totalQuestions: number;
   host: string | null;
 }
@@ -78,6 +91,7 @@ export default function PlayPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [sliderValue, setSliderValue] = useState(50);
   const emojiRef = useRef(EMOJIS[Math.floor(Math.random() * EMOJIS.length)]);
 
   useEffect(() => {
@@ -101,8 +115,13 @@ export default function PlayPage() {
   useEffect(() => {
     if (gameState?.phase === 'playing' && gameState?.questionPhase === 'answering') {
       setHasAnswered(false);
+      // Reset slider to midpoint for slider questions
+      if (gameState.currentQuestion?.type === 'slider') {
+        const mid = Math.round(((gameState.currentQuestion.min ?? 1) + (gameState.currentQuestion.max ?? 100)) / 2);
+        setSliderValue(mid);
+      }
     }
-  }, [gameState?.currentQuestionIndex, gameState?.phase, gameState?.questionPhase]);
+  }, [gameState?.currentQuestionIndex, gameState?.phase, gameState?.questionPhase, gameState?.currentQuestion?.type, gameState?.currentQuestion?.min, gameState?.currentQuestion?.max]);
 
   // Cycle suspense messages while waiting
   useEffect(() => {
@@ -144,14 +163,21 @@ export default function PlayPage() {
     setTimeout(() => setConfettiPieces([]), 3500);
   };
 
-  const handleAnswer = async (answerIndex: number) => {
+  const handleAnswer = async (answerIndex?: number, answerValue?: number) => {
     if (hasAnswered || gameState?.phase !== 'playing' || gameState?.questionPhase !== 'answering') return;
+    const isSlider = gameState.currentQuestion?.type === 'slider';
+    if (isSlider && answerValue === undefined) return;
+    if (!isSlider && answerIndex === undefined) return;
     setHasAnswered(true);
     try {
       const res = await fetch('/api/gameState', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, playerName, answerIndex }),
+        body: JSON.stringify({
+          gameId,
+          playerName,
+          ...(isSlider ? { answerValue } : { answerIndex }),
+        }),
       });
       await res.json();
     } catch {
@@ -533,31 +559,106 @@ export default function PlayPage() {
                 </div>
               )}
 
-              {/* Options */}
-              <div className="space-y-3">
-                {currentQuestion?.options?.map((option: string, index: number) => (
-                  <button
-                    key={index}
-                    onClick={() => handleAnswer(index)}
-                    disabled={hasAnswered}
-                    className={`w-full text-left glass rounded-2xl px-5 py-4 flex items-center gap-4 transition-all duration-300
-                      ${!hasAnswered
-                        ? 'hover:bg-white/15 cursor-pointer active:scale-[0.98]'
-                        : 'cursor-default opacity-60'
-                      }
-                    `}
-                  >
-                    <span className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm
-                      ${hasAnswered ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'}
-                    `}>
-                      {String.fromCharCode(65 + index)}
+              {/* Options / Slider */}
+              {currentQuestion?.type === 'slider' ? (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <span className="text-5xl font-bold font-fredoka gradient-text">
+                      {sliderValue}M
                     </span>
-                    <span className="flex-1 text-white">
-                      {option}
-                    </span>
-                  </button>
-                ))}
-              </div>
+                    <p className="text-sm text-slate-400 mt-1">Fais glisser le curseur pour estimer la population</p>
+                  </div>
+
+                  <div className="relative px-1">
+                    <input
+                      type="range"
+                      min={currentQuestion.min ?? 1}
+                      max={currentQuestion.max ?? 100}
+                      step={0.1}
+                      value={sliderValue}
+                      onChange={(e) => setSliderValue(parseFloat(e.target.value))}
+                      disabled={hasAnswered}
+                      className="w-full h-3 rounded-full appearance-none cursor-pointer
+                        bg-white/10 accent-blue-500 [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7
+                        [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gradient-to-r
+                        [&::-webkit-slider-thumb]:from-blue-400 [&::-webkit-slider-thumb]:to-purple-500
+                        [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-grab
+                        [&::-webkit-slider-thumb]:active:cursor-grabbing
+                        disabled:opacity-60 disabled:cursor-default"
+                      style={{
+                        background: hasAnswered
+                          ? 'rgba(255,255,255,0.1)'
+                          : `linear-gradient(to right, #3b82f6 ${((sliderValue - (currentQuestion.min ?? 1)) / ((currentQuestion.max ?? 100) - (currentQuestion.min ?? 1))) * 100}%, rgba(255,255,255,0.1) ${((sliderValue - (currentQuestion.min ?? 1)) / ((currentQuestion.max ?? 100) - (currentQuestion.min ?? 1))) * 100}%)`,
+                      }}
+                    />
+
+                    {/* Tick marks */}
+                    <div className="flex justify-between px-0.5 mt-2">
+                      {currentQuestion.ticks?.map((tick) => {
+                        const pct = ((tick.value - (currentQuestion.min ?? 1)) / ((currentQuestion.max ?? 100) - (currentQuestion.min ?? 1))) * 100;
+                        return (
+                          <div
+                            key={tick.value}
+                            className="flex flex-col items-center"
+                            style={{ marginLeft: `${pct}%`, transform: 'translateX(-50%)' }}
+                          >
+                            <div className="w-0.5 h-2 bg-yellow-400/60 rounded-full" />
+                            <span className="text-[10px] text-yellow-400/70 font-semibold mt-0.5 whitespace-nowrap">
+                              {tick.label} ({tick.value}M)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {!hasAnswered && (
+                    <button
+                      onClick={() => handleAnswer(undefined, sliderValue)}
+                      className="w-full py-4 px-6 rounded-2xl text-lg font-bold font-fredoka text-white
+                        transition-all duration-300 active:scale-95"
+                      style={{
+                        background: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)',
+                        boxShadow: '0 4px 20px rgba(59, 130, 246, 0.4)',
+                      }}
+                    >
+                      Valider ma réponse
+                    </button>
+                  )}
+
+                  {hasAnswered && (
+                    <div className="text-center text-green-400 font-bold animate-bounce-in py-2">
+                      ✅ Réponse envoyée — {sliderValue}M
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {currentQuestion?.options?.map((option: string, index: number) => (
+                    <button
+                      key={index}
+                      onClick={() => handleAnswer(index)}
+                      disabled={hasAnswered}
+                      className={`w-full text-left glass rounded-2xl px-5 py-4 flex items-center gap-4 transition-all duration-300
+                        ${!hasAnswered
+                          ? 'hover:bg-white/15 cursor-pointer active:scale-[0.98]'
+                          : 'cursor-default opacity-60'
+                        }
+                      `}
+                    >
+                      <span className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm
+                        ${hasAnswered ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'}
+                      `}>
+                        {String.fromCharCode(65 + index)}
+                      </span>
+                      <span className="flex-1 text-white">
+                        {option}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Suspense animation */}
               {hasAnswered && (
@@ -689,7 +790,10 @@ export default function PlayPage() {
               <div className="bg-green-500/20 border border-green-500/30 rounded-2xl p-4 text-center">
                 <span className="text-sm text-green-400 font-semibold block mb-1">✅ Bonne réponse</span>
                 <span className="text-lg font-bold text-green-200">
-                  {currentQuestion?.options[currentQuestion.correctAnswerIndex]}
+                  {currentQuestion.type === 'slider'
+                    ? `${currentQuestion.correctValue}M (±${currentQuestion.tolerance}M)`
+                    : currentQuestion?.options[currentQuestion.correctAnswerIndex]
+                  }
                 </span>
               </div>
             )}
@@ -697,7 +801,7 @@ export default function PlayPage() {
             {/* Player results */}
             <div className="space-y-2">
               <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">👥 Résultats des joueurs</h3>
-              {playerResults?.map(({ player, correct, hasAnswered }) => {
+              {playerResults?.map(({ player, correct, hasAnswered, answer }) => {
                 const isMe = player === playerName;
                 return (
                   <div
@@ -711,6 +815,9 @@ export default function PlayPage() {
                       <span className={`font-semibold ${isMe ? 'text-blue-300' : 'text-white'}`}>
                         {player} {isMe && '(moi)'}
                       </span>
+                      {hasAnswered && answer !== undefined && currentQuestion?.type === 'slider' && (
+                        <span className="text-sm text-slate-400 ml-1">({answer}M)</span>
+                      )}
                     </div>
                     <span className="text-sm font-bold text-slate-300">
                       {correct ? '+1 pt' : hasAnswered ? '+0 pt' : 'Pas répondu'}
